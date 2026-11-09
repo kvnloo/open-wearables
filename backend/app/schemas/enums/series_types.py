@@ -232,6 +232,23 @@ class SeriesType(str, Enum):
     nike_fuel = "nike_fuel"
     hydration = "hydration"
 
+    # =========================================================================
+    # NEURO / EEG - computed by NeuroSkill (IDs 600-619)
+    # =========================================================================
+    eeg_focus = "eeg_focus"
+    eeg_relaxation = "eeg_relaxation"
+    eeg_engagement = "eeg_engagement"
+    eeg_meditation = "eeg_meditation"
+    eeg_cognitive_load = "eeg_cognitive_load"
+    eeg_drowsiness = "eeg_drowsiness"
+    eeg_mood = "eeg_mood"
+    eeg_relative_delta = "eeg_relative_delta"
+    eeg_relative_theta = "eeg_relative_theta"
+    eeg_relative_alpha = "eeg_relative_alpha"
+    eeg_relative_beta = "eeg_relative_beta"
+    eeg_relative_gamma = "eeg_relative_gamma"
+    eeg_frontal_alpha_asymmetry = "eeg_frontal_alpha_asymmetry"
+
     # TEMPORARY until 1.0: lookup only, so `.value` stays current and responses carry the new name.
     @classmethod
     def _missing_(cls, value: object) -> "SeriesType | None":
@@ -433,6 +450,22 @@ SERIES_TYPE_DEFINITIONS: list[tuple[int, SeriesType, str]] = [
     (505, SeriesType.number_of_alcoholic_beverages, "count"),
     (506, SeriesType.nike_fuel, "count"),
     (507, SeriesType.hydration, "mL"),
+    # -------------------------------------------------------------------------
+    # NEURO / EEG (IDs 600-619)
+    # -------------------------------------------------------------------------
+    (600, SeriesType.eeg_focus, "score"),
+    (601, SeriesType.eeg_relaxation, "score"),
+    (602, SeriesType.eeg_engagement, "score"),
+    (603, SeriesType.eeg_meditation, "score"),
+    (604, SeriesType.eeg_cognitive_load, "score"),
+    (605, SeriesType.eeg_drowsiness, "score"),
+    (606, SeriesType.eeg_mood, "score"),
+    (607, SeriesType.eeg_relative_delta, "ratio"),
+    (608, SeriesType.eeg_relative_theta, "ratio"),
+    (609, SeriesType.eeg_relative_alpha, "ratio"),
+    (610, SeriesType.eeg_relative_beta, "ratio"),
+    (611, SeriesType.eeg_relative_gamma, "ratio"),
+    (612, SeriesType.eeg_frontal_alpha_asymmetry, "ratio"),
 ]
 
 
@@ -495,6 +528,7 @@ _CATEGORY_RANGES: list[tuple[range, str]] = [
     (range(220, 250), "Provider-Specific"),  # 220-239 Garmin, 240-249 Withings
     (range(260, 302), "Nutrition"),
     (range(500, 600), "Other"),
+    (range(600, 620), "Neuro / EEG"),
 ]
 
 SERIES_TYPE_CATEGORY_BY_ENUM: dict[SeriesType, str] = {}

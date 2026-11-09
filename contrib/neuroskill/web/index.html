@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Brainwave field</title>
+<style>
+  :root { --ink:#111; --mute:#8a8a8a; --rule:#111; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { background:#fff; color:var(--ink); font:300 13px/1.45 "Gill Sans","Fira Sans","Helvetica Neue",sans-serif; }
+  header { display:flex; align-items:baseline; gap:24px; padding:18px 28px 10px; }
+  header h1 { font-weight:400; font-size:15px; letter-spacing:.02em; }
+  header nav a { color:var(--mute); text-decoration:none; margin-right:14px; }
+  header nav a.on { color:var(--ink); border-bottom:1px solid var(--ink); }
+  header .state { margin-left:auto; color:var(--mute); font-size:12px; }
+  main { padding:0 28px 28px; }
+  .live { display:grid; grid-template-columns:minmax(260px,38%) 1fr; gap:28px; align-items:start; }
+  .glyph-wrap { position:relative; }
+  .scores { display:grid; grid-template-columns:repeat(4,1fr); gap:6px 18px; margin-top:14px; }
+  .scores div b { display:block; font-weight:400; font-size:22px; font-variant-numeric:tabular-nums; }
+  .scores div span { color:var(--mute); font-size:11px; text-transform:lowercase; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:16px; font-size:11px; color:#444; }
+  .legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:5px; vertical-align:-1px; }
+  .cap { color:var(--mute); font-size:11px; margin:6px 0 10px; }
+  .poster { display:grid; grid-template-columns:auto 1fr; gap:0; }
+  .notes { position:relative; min-width:320px; }
+  .note { position:absolute; left:34px; right:0; }
+  .note time { display:block; font-size:11px; color:#333; }
+  .note b { display:block; font-weight:600; font-size:12px; }
+  .note p { font-style:italic; font-size:11px; color:#333; max-width:340px; }
+  .bracket { position:absolute; left:8px; width:18px; border:solid var(--rule); border-width:1px 0 1px 1px; }
+  .tick { position:absolute; left:0; width:34px; border-top:1px solid var(--rule); }
+  canvas { display:block; }
+  .empty { color:var(--mute); padding:40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>brainwave field</h1>
+  <nav><a id="nav-live" href="?view=live">live</a><a id="nav-poster" href="?view=poster">poster</a></nav>
+  <div class="state" id="state">connecting…</div>
+</header>
+<main id="main"></main>
+<script>
+// Encoding (from docs/inspo): 1 point = 1 s = 8 concentric circles, one per band, radius from band power;
+// 1 row = 60 s. delta outermost (20 %), theta 40 %, the rest 50 %. Colours overlap into the field.
+const BANDS = ["delta","theta","low_alpha","high_alpha","low_beta","high_beta","low_gamma","high_gamma"];
+const LABEL = {delta:"δ delta",theta:"θ theta",low_alpha:"low α",high_alpha:"high α",low_beta:"low β",high_beta:"high β",low_gamma:"low γ",high_gamma:"high γ"};
+const COLOR = {delta:"#dd0a0a",theta:"#ff8500",low_alpha:"#fcea01",high_alpha:"#58ed14",low_beta:"#16caf4",high_beta:"#022aba",low_gamma:"#6f5ba3",high_gamma:"#e50cbc"};
+const ALPHA = {delta:.20,theta:.40};
+const SCORE_KEYS = ["focus","relaxation","engagement","meditation","cognitive_load","drowsiness","mood"];
+const q = new URLSearchParams(location.search);
+const view = q.get("view") || "live";
+document.getElementById("nav-"+view)?.classList.add("on");
+const main = document.getElementById("main"), stateEl = document.getElementById("state");
+
+function rgba(hex,a){const n=parseInt(hex.slice(1),16);return `rgba(${n>>16},${n>>8&255},${n&255},${a})`;}
+// One log scale for all bands (2nd-98th percentile of the data shown), so relative size between
+// bands is preserved and a sudden burst reads as a much bigger circle.
+function scaleFor(points){
+  const v=[]; for(const p of points) for(const b of BANDS){const x=p.bands[b]; if(x>0) v.push(Math.log10(x));}
+  if(!v.length) return ()=>0; v.sort((a,b)=>a-b);
+  const lo=v[Math.floor(v.length*.02)], hi=v[Math.ceil(v.length*.98)-1]||lo+1, span=Math.max(hi-lo,1e-6);
+  return x => x>0 ? Math.min(1.25, Math.max(0,(Math.log10(x)-lo)/span)) : 0;
+}
+function drawPoint(ctx,x,y,R,p,scale){
+  for(const b of BANDS){ // back to front: delta largest, high gamma on top
+    const r=R*(.08+.92*scale(p.bands[b])); if(r<=0.2) continue;
+    ctx.fillStyle=rgba(COLOR[b],ALPHA[b]??.5); ctx.beginPath(); ctx.arc(x,y,r,0,7); ctx.fill();
+  }
+}
+function dotGrid(ctx,w,h,step,ox,oy){ctx.fillStyle="rgba(0,0,0,.28)";for(let y=oy;y<h;y+=step)for(let x=ox;x<w;x+=step)ctx.fillRect(x-.5,y-.5,1,1);}
+function canvas(w,h){const c=document.createElement("canvas"),d=devicePixelRatio||1;c.width=w*d;c.height=h*d;c.style.width=w+"px";c.style.height=h+"px";const x=c.getContext("2d");x.scale(d,d);return [c,x];}
+function legend(){return `<div class="legend">${BANDS.map(b=>`<span><i style="background:${rgba(COLOR[b],ALPHA[b]??.5)};outline:1px solid ${COLOR[b]}"></i>${LABEL[b]}</span>`).join("")}</div>`;}
+const hhmmss=t=>new Date(t*1000).toTimeString().slice(0,8);
+
+// ---------- field: rows of 60 points ----------
+function drawField(points,width,{step}={}){
+  const cols=60; step=step||Math.max(4,Math.floor(width/cols));
+  const rows=Math.max(1,Math.ceil(points.length/cols)), w=cols*step, h=rows*step+step;
+  const [c,ctx]=canvas(w,h);
+  dotGrid(ctx,w,h,step,step/2,step/2); const scale=scaleFor(points);
+  points.forEach((p,i)=>drawPoint(ctx,(i%cols)*step+step/2,Math.floor(i/cols)*step+step/2,step*.62,p,scale));
+  return {c,step,rows};
+}
+
+// ---------- annotations (auto, from NeuroSkill scores + band bursts) ----------
+function annotate(points){
+  const out=[], per=60, mins=[];
+  for(let i=0;i<points.length;i+=per){const s=points.slice(i,i+per);const m={i,t:s[0].t,t1:s[s.length-1].t};
+    for(const k of SCORE_KEYS){const v=s.map(p=>p.scores?.[k]).filter(Number.isFinite);m[k]=v.length?v.reduce((a,b)=>a+b)/v.length:NaN;} mins.push(m);}
+  const label=m=> m.drowsiness>60?"Drowsy": m.focus>70?"Concentration (focus)": m.meditation>65||m.relaxation>70?"Relaxation": m.cognitive_load>70?"High cognitive load": "Awake, mixed";
+  const why={ "Drowsy":"Theta and delta grow, alpha fades: red and orange circles spread.",
+    "Concentration (focus)":"Beta up, alpha suppressed: cyan and blue circles grow.",
+    "Relaxation":"Alpha dominant: yellow and green circles grow.",
+    "High cognitive load":"Frontal theta with beta: orange and blue together.",
+    "Awake, mixed":"No single band dominates." };
+  let cur=null; for(const m of mins){const l=label(m); if(cur&&cur.label===l){cur.t1=m.t1;cur.i1=m.i+per;} else {cur&&out.push(cur);cur={label:l,t:m.t,t1:m.t1,i:m.i,i1:m.i+per,text:why[l]};}}
+  cur&&out.push(cur);
+  // sudden beta burst: "much bigger blue circles appearing suddenly"
+  const hb=points.map(p=>Math.log10(p.bands.high_beta||1e-9)); const mu=hb.reduce((a,b)=>a+b,0)/(hb.length||1);
+  const sd=Math.sqrt(hb.reduce((a,b)=>a+(b-mu)**2,0)/(hb.length||1))||1; let last=-1e9;
+  hb.forEach((v,i)=>{ if((v-mu)/sd>3 && i-last>300){ last=i; out.push({label:"Beta burst",t:points[i].t,i,i1:i+1,point:true,text:"Sudden growth in beta activity: a much bigger blue circle. Movement, arousal or artefact."}); }});
+  return out.sort((a,b)=>a.i-b.i);
+}
+
+// ---------- views ----------
+function renderPoster(points,day){
+  if(!points.length){main.innerHTML=`<p class="empty">No EEG recorded on ${day}.</p>`;return;}
+  const {c,step}=drawField(points,Math.min(900,innerWidth*.6));
+  main.innerHTML=`<p class="cap">recording ${day} · ${hhmmss(points[0].t)} – ${hhmmss(points.at(-1).t)} · 1 point = 1 s · 1 row = 60 s</p><div class="poster"><div id="f"></div><div class="notes" id="n"></div></div>${legend()}`;
+  document.getElementById("f").append(c); const n=document.getElementById("n"); n.style.height=c.style.height;
+  let lastY=-1e9;
+  for(const a of annotate(points)){
+    const y0=Math.floor(a.i/60)*step+step/2, y1=Math.floor((a.i1-1)/60)*step+step/2;
+    if(a.point){n.insertAdjacentHTML("beforeend",`<div class="tick" style="top:${y0}px"></div>`);}
+    else{n.insertAdjacentHTML("beforeend",`<div class="bracket" style="top:${y0}px;height:${Math.max(2,y1-y0)}px"></div>`);}
+    const y=Math.max(y0-6,lastY+58); lastY=y;
+    n.insertAdjacentHTML("beforeend",`<div class="note" style="top:${y}px"><time>${hhmmss(a.t)}${a.point?"":" – "+hhmmss(a.t1)}</time><b>${a.label}</b><p>${a.text}</p></div>`);
+  }
+}
+let live=[], glyphCtx, glyphSize, fieldEl, scoresEl;
+function renderLiveShell(){
+  main.innerHTML=`<div class="live"><div class="glyph-wrap"><canvas id="g"></canvas><div class="scores" id="s"></div>${legend()}</div>
+    <div><p class="cap">last 30 min · 1 point = 1 s · 1 row = 60 s</p><div id="field"></div></div></div>`;
+  glyphSize=Math.min(420,Math.floor(innerWidth*.34)); const [c,ctx]=canvas(glyphSize,glyphSize);
+  document.getElementById("g").replaceWith(c); glyphCtx=ctx; fieldEl=document.getElementById("field"); scoresEl=document.getElementById("s");
+}
+let target=null, shown=null;
+function animateGlyph(){ // ease the target toward the newest second so the rings breathe instead of jumping
+  if(target){ shown=shown||structuredClone(target);
+    for(const b of BANDS) shown.bands[b]+= (target.bands[b]-shown.bands[b])*.12; const s=glyphSize;
+    glyphCtx.clearRect(0,0,s,s);
+    drawPoint(glyphCtx,s/2,s/2,s*.46,shown,scaleFor(live.slice(-600))); }
+  requestAnimationFrame(animateGlyph);
+}
+function updateLive(){
+  const p=live.at(-1); if(!p) return; target=p;
+  scoresEl.innerHTML=SCORE_KEYS.map(k=>`<div><b>${Number.isFinite(p.scores?.[k])?Math.round(p.scores[k]):"–"}</b><span>${k.replace("_"," ")}</span></div>`).join("");
+  if(live.length%5===1||!fieldEl.firstChild){ const {c}=drawField(live.slice(-1800),fieldEl.clientWidth||600); fieldEl.replaceChildren(c); }
+}
+function connect(){
+  const ws=new WebSocket(`${location.protocol==="https:"?"wss":"ws"}://${location.host}/live`);
+  ws.onmessage=e=>{const m=JSON.parse(e.data);
+    if(m.type==="history"){live=m.points;} else if(m.type==="point"){live.push(m); if(live.length>3600) live.shift();}
+    const p=live.at(-1); stateEl.textContent=p?`${p.device} · ${p.state} · ${hhmmss(p.t)}`:"waiting for EEG…"; updateLive();};
+  ws.onclose=()=>{stateEl.textContent="reconnecting…"; setTimeout(connect,2000);};
+}
+if(view==="poster"){
+  const day=q.get("day")||new Date().toLocaleDateString("en-CA");
+  stateEl.textContent="loading "+day;
+  fetch(`history?day=${day}`).then(r=>r.text()).then(t=>{const pts=t.trim()?t.trim().split("\n").map(JSON.parse):[];stateEl.textContent=`${pts.length} s recorded`;renderPoster(pts,day);});
+} else { renderLiveShell(); connect(); requestAnimationFrame(animateGlyph); }
+</script>
+</body>
+</html>
